@@ -1,17 +1,4 @@
-# 奶蛙 🐸
-
-一个简洁的 Android 视频循环播放应用，使用 Jetpack Compose 构建。
-
-## 功能特性
-
-- 🎬 视频循环播放
-- 📱 全屏沉浸式体验
-- 🌙 深色主题界面
-- 🔘 简洁的一键控制
-
-## 截图
-
-应用界面简洁，点击按钮即可开始/停止视频循环播放。
+# 奶蛙 
 
 ## 技术栈
 
@@ -103,8 +90,3 @@ app/
 ## 贡献
 
 欢迎提交 Issue 和 Pull Request！
-
-## 致谢
-
-- [Jetpack Compose](https://developer.android.com/jetpack/compose)
-- [Material Design 3](https://m3.material.io/)
