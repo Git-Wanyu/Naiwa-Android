@@ -5,7 +5,6 @@ import android.os.Bundle
 import android.util.Log
 import android.view.SurfaceHolder
 import android.view.SurfaceView
-import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
@@ -22,7 +21,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,7 +34,11 @@ class MainActivity : ComponentActivity() {
     
     private var mediaPlayer: MediaPlayer? = null
     private var surfaceView: SurfaceView? = null
+    private var surfaceHolder: SurfaceHolder? = null
     private var hasAppliedInitialLayout = false
+    private var isMediaPrepared = false
+    private var shouldResumePlayback = false
+    private var isPlaying by mutableStateOf(false)
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,8 +53,6 @@ class MainActivity : ComponentActivity() {
                         .fillMaxSize()
                         .background(Color(0xFFFBFDFC))
                 ) {
-                    var isPlaying by remember { mutableStateOf(false) }
-
                     AndroidView(
                         factory = { ctx ->
                             val rootLayout = FrameLayout(ctx).apply {
@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity() {
                                 holder.addCallback(object : SurfaceHolder.Callback {
                                     override fun surfaceCreated(holder: SurfaceHolder) {
                                         Log.d("Nailong", "Surface created")
+                                        surfaceHolder = holder
                                         surfaceView = this@apply
                                         initMediaPlayer(holder)
                                     }
@@ -77,6 +78,9 @@ class MainActivity : ComponentActivity() {
 
                                     override fun surfaceDestroyed(holder: SurfaceHolder) {
                                         Log.d("Nailong", "Surface destroyed")
+                                        surfaceHolder = null
+                                        hasAppliedInitialLayout = false
+                                        mediaPlayer?.setDisplay(null)
                                     }
                                 })
                             }
@@ -100,16 +104,7 @@ class MainActivity : ComponentActivity() {
 
                     Button(
                         onClick = {
-                            mediaPlayer?.let { mp ->
-                                if (isPlaying) {
-                                    mp.pause()
-                                    mp.seekTo(0)
-                                    isPlaying = false
-                                } else {
-                                    mp.start()
-                                    isPlaying = true
-                                }
-                            }
+                            togglePlayback()
                         },
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -135,27 +130,38 @@ class MainActivity : ComponentActivity() {
     private fun initMediaPlayer(holder: SurfaceHolder) {
         try {
             mediaPlayer?.release()
+            mediaPlayer = null
+            isMediaPrepared = false
+            hasAppliedInitialLayout = false
             mediaPlayer = MediaPlayer().apply {
                 setDisplay(holder)
                 isLooping = true
                 setVolume(1f, 1f)
                 
-                val rawFd = resources.openRawResourceFd(R.raw.nl)
-                setDataSource(rawFd.fileDescriptor, rawFd.startOffset, rawFd.length)
+                resources.openRawResourceFd(R.raw.nl).use { rawFd ->
+                    setDataSource(rawFd.fileDescriptor, rawFd.startOffset, rawFd.length)
+                }
                 
                 setOnPreparedListener { mp ->
+                    this@MainActivity.isMediaPrepared = true
                     Log.d("Nailong", "MediaPlayer prepared, video: ${mp.videoWidth}x${mp.videoHeight}")
-                    updateVideoLayout(surfaceView?.width ?: 0, surfaceView?.height ?: 0)
+                    this@MainActivity.updateVideoLayout(surfaceView?.width ?: 0, surfaceView?.height ?: 0)
                     mp.seekTo(0, MediaPlayer.SEEK_CLOSEST)
+                    if (this@MainActivity.shouldResumePlayback) {
+                        mp.start()
+                        this@MainActivity.isPlaying = true
+                    }
                 }
                 
                 setOnVideoSizeChangedListener { mp, width, height ->
                     Log.d("Nailong", "Video size changed: ${width}x${height}")
-                    updateVideoLayout(surfaceView?.width ?: 0, surfaceView?.height ?: 0)
+                    this@MainActivity.updateVideoLayout(surfaceView?.width ?: 0, surfaceView?.height ?: 0)
                 }
                 
                 setOnErrorListener { _, what, extra ->
                     Log.e("Nailong", "MediaPlayer error: what=$what, extra=$extra")
+                    this@MainActivity.isMediaPrepared = false
+                    this@MainActivity.isPlaying = false
                     false
                 }
                 
@@ -163,6 +169,27 @@ class MainActivity : ComponentActivity() {
             }
         } catch (e: Exception) {
             Log.e("Nailong", "Failed to init MediaPlayer", e)
+        }
+    }
+
+    private fun togglePlayback() {
+        val mp = mediaPlayer ?: return
+        if (isPlaying) {
+            shouldResumePlayback = false
+            if (isMediaPrepared) {
+                if (mp.isPlaying) {
+                    mp.pause()
+                }
+                mp.seekTo(0)
+            }
+            isPlaying = false
+            return
+        }
+
+        shouldResumePlayback = true
+        if (isMediaPrepared && !mp.isPlaying) {
+            mp.start()
+            isPlaying = true
         }
     }
 
@@ -210,7 +237,27 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
-        mediaPlayer?.pause()
+        shouldResumePlayback = mediaPlayer?.isPlaying == true
+        if (isMediaPrepared && shouldResumePlayback) {
+            mediaPlayer?.pause()
+        }
+        isPlaying = false
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!shouldResumePlayback) {
+            return
+        }
+
+        val mp = mediaPlayer
+        if (mp != null && isMediaPrepared) {
+            mp.start()
+            isPlaying = true
+            return
+        }
+
+        surfaceHolder?.let(::initMediaPlayer)
     }
 
     override fun onDestroy() {
@@ -218,5 +265,8 @@ class MainActivity : ComponentActivity() {
         mediaPlayer?.release()
         mediaPlayer = null
         surfaceView = null
+        surfaceHolder = null
+        isMediaPrepared = false
+        isPlaying = false
     }
 }
